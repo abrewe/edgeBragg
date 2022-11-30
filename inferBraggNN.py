@@ -21,7 +21,7 @@ class inferBraggNNtrt(threading.Thread):
         logging.info("TensorRT Inference engine initialization completed!")
 
         while True:
-            in_mb, ori_mb = self.tq_patch.get()
+            in_mb, ori_mb, frm_id = self.tq_patch.get()
             batch_tick = time.time()
             np.copyto(self.trt_hin, in_mb.astype(np.float32).ravel())
             comp_tick  = time.time()
@@ -33,7 +33,7 @@ class inferBraggNNtrt(threading.Thread):
                          self.mbsz, t_batch, t_comp, self.tq_patch.qsize()))
 
             ddict = {"ploc":np.concatenate([ori_mb, pred*in_mb.shape[-1]], axis=1), \
-                     "patches":in_mb}
+                     "patches":in_mb, "uniqueId": frm_id}
             self.writer.append2write(ddict)
             if self.zmq_writer is not None:
                 self.zmq_writer.append2write(ddict)
@@ -58,7 +58,7 @@ class inferBraggNNTorch(threading.Thread):
 
     def run(self, ):
         while True:
-            in_mb, ori_mb= self.tq_patch.get()
+            in_mb, ori_mb, frm_id = self.tq_patch.get()
             batch_tick = time.time()
             input_tensor = torch.from_numpy(in_mb.astype(np.float32))
             comp_tick = time.time()
@@ -70,7 +70,8 @@ class inferBraggNNTorch(threading.Thread):
                          pred.shape[0], t_batch, t_comp, self.tq_patch.qsize()))
 
             ddict = {"ploc":np.concatenate([ori_mb, pred*in_mb.shape[-1]], axis=1), \
-                     "patches":in_mb}
+                     "patches":in_mb, "uniqueId":frm_id}
+
             self.writer.append2write(ddict)
             if self.zmq_writer is not None:
                 self.zmq_writer.append2write(ddict)

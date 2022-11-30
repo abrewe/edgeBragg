@@ -1,12 +1,16 @@
-import time, queue, sys, os, multiprocessing
+import time, queue, sys, os, multiprocessing, threading
+from collections import OrderedDict
 import argparse, logging, yaml
+import pvaccess as pva
+
 from pvaccess import Channel
 import numpy as np 
 from multiprocessing import Process, Queue
 
 from inferBraggNN import inferBraggNNtrt, inferBraggNNTorch
 from frameProcess import frame_process_worker_func
-from asyncWriter import asyncHDFWriter, asyncZMQWriter
+from asyncWriter import asyncPVAPub #, asyncHDFWriter, asyncZMQWriter
+
 from pvaClient import pvaClient
 from trtUtil import scriptpth2onnx
 
@@ -17,21 +21,24 @@ def main(params):
 
     tq_frame = Queue(maxsize=-1) # a task queue for frame processing
     tq_patch = Queue(maxsize=-1) # a task queue for patch processing, i.e., model inference
-    rq_peak_write = Queue(maxsize=-1) # results async writter
+    # rq_peak_write = Queue(maxsize=-1) # results async writter
+
+    writer = asyncPVAPub(channel=params['output']['chkey'], freq=params['output']['freq'])
+    writer.start()
 
     # create async peak/result writer
-    peak_writer = asyncHDFWriter(params['output']['peaks2file'])
-    peak_writer.start()
+    # peak_writer = asyncHDFWriter(params['output']['peaks2file'])
+    # peak_writer.start()
 
-    peak_writer4viz = asyncZMQWriter(port=params['output']['port4zmq'])
-    peak_writer4viz.start()
+    # peak_writer4viz = asyncZMQWriter(port=params['output']['port4zmq'])
+    # peak_writer4viz.start()
 
-    # create async frame writer as needed
-    if params['output']['frame2file'] is not None and len(params['output']['frame2file']) > 0:
-        frame_writer = asyncHDFWriter(params['output']['frame2file'], compression=True)
-        frame_writer.start()
-    else:
-        frame_writer = None
+    # # create async frame writer as needed
+    # if params['output']['frame2file'] is not None and len(params['output']['frame2file']) > 0:
+    #     frame_writer = asyncHDFWriter(params['output']['frame2file'], compression=True)
+    #     frame_writer.start()
+    # else:
+    frame_writer = None
 
     # initialize pva, it pushes frames into tq_frame
     pva_client = pvaClient(tq_frame=tq_frame, dtype=params['frame']['datatype'])
@@ -40,10 +47,10 @@ def main(params):
     if params['infer']['tensorrt']:
         onnx_fn = scriptpth2onnx(pth=params['model']['model_fname'], mbsz=params['infer']['mbsz'], psz=params['model']['psz'])
         infer_engine = inferBraggNNtrt(mbsz=params['infer']['mbsz'], onnx_mdl=onnx_fn, tq_patch=tq_patch, \
-                                       peak_writer=peak_writer, zmq_writer=peak_writer4viz)
+                                       peak_writer=writer, zmq_writer=None)
     else:
         infer_engine = inferBraggNNTorch(script_pth=params['model']['model_fname'], tq_patch=tq_patch, \
-                                         peak_writer=peak_writer, zmq_writer=peak_writer4viz)
+                                         peak_writer=writer, zmq_writer=None)
     infer_engine.start()
 
     # start a pool of processes to digest frame from tq_frame and push patches into tq_patch
@@ -57,7 +64,7 @@ def main(params):
 
     c.subscribe('monitor', pva_client.monitor)
     c.startMonitor('')
-    
+
     # exit when idle for some seconds or interupted by keyboard
     while True:
         try:
@@ -76,10 +83,11 @@ def main(params):
                 tq_frame.put((-1, None, None, None, None, None, None))
             logging.critical("program exits because KeyboardInterrupt")
             break
-        
+
     time.sleep(1) # give processes seconds to exit
     c.stopMonitor()
     c.unsubscribe('monitor')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='edge pipeline for Bragg peak finding')

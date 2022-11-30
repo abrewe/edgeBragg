@@ -117,7 +117,7 @@ def frame_process_worker_func(frame_tq, psz, patch_tq, mbsz, offset_recover, min
 
         while len(patch_list) >= mbsz:
             batch_task = (np.array(patch_list[:mbsz])[:,np.newaxis], \
-                          np.array(patch_ori_list[:mbsz]).astype(np.float32))
+                          np.array(patch_ori_list[:mbsz]).astype(np.float32), frm_id)
             patch_tq.put(batch_task)
             patch_list = patch_list[mbsz:]
             patch_ori_list = patch_ori_list[mbsz:]
