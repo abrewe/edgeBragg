@@ -151,7 +151,6 @@ class AdSimServer(threading.Thread):
         # cached_frame_id = self.current_frame_id % self.n_input_frames
         # frame = self.frame_map[cached_frame_id]
         if self.files.empty() and self.loaded_images == 0 and not self.random_frames:
-            print("hello")
             print("No image files loaded")
             self.stop()
         elif self.files.empty() and self.in_directory is not None:
