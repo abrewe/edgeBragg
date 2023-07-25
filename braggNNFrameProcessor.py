@@ -142,6 +142,9 @@ class BraggNNFrameProcessor(UserMpDataProcessor):
                 np.array(patch_ori[:mbsz]).astype(np.float32),
                 frm_id
         )
+
+
+
         patch_q.put(batch_task)
         patch_list = patch_list[mbsz:]
         patch_ori_list = patch_ori_list[mbsz:]

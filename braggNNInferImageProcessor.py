@@ -40,6 +40,11 @@ class BraggNNInferImageProcessor(AdImageProcessor):
         self.nGpu = params['infer'].get('n_gpu', 2)
         self.logger.debug(f'Number of available GPUs: {self.nGpu}')
 
+        #if n_set_frames reached (and isn't 0), publish zeroed out patch!
+        self.n_set_frames = params['frame']['frames_per_dataset']
+        self.frame_counter = 0
+        self.first_dataset = True
+
         # Create frame writer; receives data from frame processor
         self.frameHdfController = None
         if params['output']['frame2file']:
@@ -120,7 +125,7 @@ class BraggNNInferImageProcessor(AdImageProcessor):
                     self.peak_zmq_q.put(ddict)
                 self.peak_pva_q.put(ddict)
                 self.nPatchBatchesProcessed += 1
-                self.logger.debug(f'Batch of {in_mb.shape[0]} patches; {self.patch_q.qsize()} batches pending infer.')
+                self.logger.debug(f'Batch of {in_mb.shape[0]} patches from frame {frm_id}; {self.patch_q.qsize()} batches pending.')
             except queue.Empty:
                 continue
             except KeyboardInterrupt:
@@ -171,6 +176,37 @@ class BraggNNInferImageProcessor(AdImageProcessor):
             publishTime = time.time()-t0
             self.publishTimeSum += publishTime
             self.nPatchesPublished += 1
+        self.frame_counter += 1
+        self.logger.debug(self.frame_counter)
+        if self.frame_counter >= self.n_set_frames != 0:
+            self._publishBreakPatch()
+            self.frame_counter = 0
+
+    #for when an indication of a break between datasets is required.
+    def _publishBreakPatch(self):
+        self.logger.debug(f'Publishing 1 zero patch, break between datasets.')
+        t0 = time.time()
+        pdict = {}
+        pdict['image'] = np.zeros((1,15,15), dtype=np.int32)
+        pdict['uniqueId'] = 0
+        pdict['patchId'] = 0
+
+        self.logger.debug(pdict['image'])
+        a, ny, nx = pdict['image'].shape
+        nda = pva.NtNdArray()
+        meta = list(pdict.keys())[2:]
+        attrs = [pva.NtAttribute(_key, pva.PvFloat(pdict[_key])) for _key in meta]
+        nda['attribute'] = attrs
+        nda['uniqueId'] = pdict['uniqueId']
+        dims = [pva.PvDimension(nx, 0, nx, 1, False),
+                pva.PvDimension(ny, 0, ny, 1, False)]
+        nda['dimension'] = dims
+        nda['descriptor'] = 'Zero Patch'
+        nda['value'] = {'intValue': np.array(pdict['image'].flatten(), dtype=np.int32)}
+        self.updateOutputChannel(nda)
+        publishTime = time.time()-t0
+        self.publishTimeSum += publishTime
+        self.nPatchesPublished += 1
 
     def _pvaWorker(self):
         self.logger.debug('Starting pva worker')
@@ -179,6 +215,9 @@ class BraggNNInferImageProcessor(AdImageProcessor):
                 break
             try:
                 ddict = self.peak_pva_q.get(block=True, timeout=self.Q_WAIT_TIME)
+                if self.frame_counter == 0 and self.n_set_frames != 0 and self.first_dataset:
+                    self._publishBreakPatch()
+                    self.first_dataset = False
                 self._pvaPublishPeaks(ddict)
             except queue.Empty:
                 continue

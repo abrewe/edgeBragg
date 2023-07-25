@@ -8,10 +8,11 @@ frame:
   min_intensity: 100
   offset_recover: 0 # a[a>0] += offset_recover
   pvkey: "" # should not be needed
-  nproc: 3 # number of processes for frame preproc
+  nproc: 1 # number of processes for frame preproc
   max_radius: 3000
   min_peak_sz: 3 # minimum number of non-pixel
   datatype: "ushortValue" # should not be needed
+  frames_per_dataset: 100
   
 infer:
   tensorrt: False
